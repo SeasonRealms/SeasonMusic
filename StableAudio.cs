@@ -2,6 +2,22 @@
 // Licensed under the MIT License.
 // https://github.com/SeasonRealms/SeasonAudio
 // SeasonAudio for Stable Audio Models
+//
+// NOTE (latentLength parity / decoder SWA reshape):
+//   The dynamic decoders require `latentLength` to be EVEN. Inside the decoder the latent is
+//   upsampled to the transformer resolution (seq = latentLength * upsampleFactor) and the
+//   sliding-window attention (SWA) layers reshape seq into windows via `seq // windowSize`,
+//   then Reshape to {1, seq/windowSize, windowSize, dim}. Because windowSize == 2 * upsampleFactor,
+//   divisibility (seq % windowSize == 0) holds only when latentLength is even.
+//   This applies to BOTH `same-s` (dec_dynamic_bf16.onnx, used by small-sfx / small-music) and
+//   `same-l` (dec_dynamic_triton_swa.onnx, used by stable-audio-3-medium). Previously the rounding
+//   was gated on UsesSameSDecoder only, so the medium (`same-l`) decoder kept an odd latentLength
+//   and crashed at /decoder/layers.N/Reshape_* with:
+//     "input_shape_size == requested_shape_size was false", e.g.
+//     Input shape:{1,5491,768} (seconds=30 -> latentLength=323 -> seq=323*17=5491),
+//     requested shape:{1,161,34,768} (5491//34=161, 161*34=5474 != 5491).
+//   Fix: always round latentLength up to the next even value in Generate and DebugFirstDiTStep.
+//   The extra +1 latent frame (~0.09s) is harmless; output is truncated to the requested duration.
 
 namespace Season.Audio;
 
@@ -90,7 +106,8 @@ public partial class StableAudio
         WarnIfSmallSfxDuration(runtime.spec, seconds, 0f);
 
         int latentLength = Math.Max(1, (int)Math.Ceiling(seconds * SampleRate / SampleCompression));
-        if (UsesSameSDecoder(runtime.spec.DecoderPath) && (latentLength & 1) != 0)
+        // Decoder SWA requires an even latentLength for both same-s and same-l decoders (see file header NOTE).
+        if ((latentLength & 1) != 0)
             latentLength++;
 
         var promptDebug = runtime.EncodePromptDebug(runtime.bundle, prompt);
@@ -297,7 +314,28 @@ public partial class StableAudio
             _ => new Lazy<ModelBundle>(
                 () => LoadBundle((spec, provider)),
                 LazyThreadSafetyMode.ExecutionAndPublication));
-        return lazyBundle.Value;
+        try
+        {
+            return lazyBundle.Value;
+        }
+        catch
+        {
+            // A Lazy caches exceptions forever; evict the failed entry so a later attempt reloads
+            // instead of rethrowing the stale failure.
+            Bundles.TryRemove(spec.CacheKey, out _);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Disposes the shared session bundle for this instance and removes it from the cache.
+    /// Any other StableAudio instance sharing the same bundle becomes unusable afterwards;
+    /// the application is expected to unload through this path before dropping the context.
+    /// </summary>
+    public void Release()
+    {
+        if (Bundles.TryRemove(spec.CacheKey, out var lazy) && lazy.IsValueCreated)
+            lazy.Value.Dispose();
     }
 
     /// <summary>
@@ -353,7 +391,8 @@ public partial class StableAudio
 
         float generationSeconds = seconds + durationPaddingSeconds;
         int latentLength = Math.Max(1, (int)Math.Ceiling(generationSeconds * SampleRate / SampleCompression));
-        if (UsesSameSDecoder(spec.DecoderPath) && (latentLength & 1) != 0)
+        // Decoder SWA requires an even latentLength for both same-s and same-l decoders (see file header NOTE).
+        if ((latentLength & 1) != 0)
             latentLength++;
 
         WarnIfShortLatent(generationSeconds, latentLength, EnableDebugOutput);

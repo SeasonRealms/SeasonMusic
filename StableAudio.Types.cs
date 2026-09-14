@@ -33,7 +33,7 @@ public partial class StableAudio
         float[] Samples,
         int ChannelCount);
 
-    sealed class ModelBundle
+    sealed class ModelBundle : IDisposable
     {
         public ModelBundle(
             PromptTokenizer tokenizer,
@@ -54,6 +54,13 @@ public partial class StableAudio
         public InferenceSession DitSession { get; }
 
         public InferenceSession DecoderSession { get; }
+
+        public void Dispose()
+        {
+            TextEncoderSession.Dispose();
+            DitSession.Dispose();
+            DecoderSession.Dispose();
+        }
     }
 
     sealed class DiTRunContext

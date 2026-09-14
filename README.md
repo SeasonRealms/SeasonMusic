@@ -285,6 +285,35 @@ python scripts/export_stable_audio_onnx.py --variant medium --out-dir out
 
 The script accepts optional advanced overrides, but `--variant` is the recommended entry point.
 
+## ONNX External Data And Runtime Compatibility
+
+Models larger than the 2 GiB protobuf limit (the `medium` DiT and its SAME decoder) are written by `torch.onnx.export` as one external-data shard per tensor. Both `scripts/export_stable_audio_onnx.py` and `scripts/merge_stable_audio_onnx.py` consolidate those shards into a single `<graph>.onnx_data` companion per model, which is the layout the runtime bundle resolver expects.
+
+Consolidation must keep the small `Constant` tensors that ONNX shape inference reads (for example `Unsqueeze`/`Reshape` axes) inline in the graph file. ONNX Runtime only auto-loads external data for graph *initializers*, never for *Constant-node attribute* tensors, so a file-backed constant makes session creation fail on ONNX Runtime 1.23 and later with:
+
+```
+[ShapeInferenceError] Cannot parse data from external tensors.
+Please load external data into raw data for tensor: /Constant_output_0
+```
+
+Both scripts therefore save with `convert_attribute=False` and `size_threshold=1024`: only large initializers (weights) go to the `.onnx_data` file, while every constant stays inline. This keeps the bundle loadable across ONNX Runtime versions and platforms. `export_stable_audio_onnx.py` additionally verifies each consolidated model and fails the export if any constant is still external.
+
+Use `scripts/merge_stable_audio_onnx.py` to (re)merge an already-exported bundle without re-running the PyTorch export:
+
+```bash
+# Non-destructive: write a merged copy next to the source bundle (<bundle>-merged).
+python scripts/merge_stable_audio_onnx.py /path/to/stable-audio-3-medium-onnx
+
+# Merge into an explicit directory, or consolidate the bundle in place.
+python scripts/merge_stable_audio_onnx.py /path/to/bundle --out-dir /path/to/merged
+python scripts/merge_stable_audio_onnx.py /path/to/bundle --in-place
+
+# Verify existing model(s) without merging; --deep-verify also runs shape inference.
+python scripts/merge_stable_audio_onnx.py --verify-only /path/to/dit.onnx --deep-verify
+```
+
+Requirements: `pip install "onnx>=1.16"`. Consolidation loads the full model into memory, so merging the `medium` DiT needs roughly 6-8 GB of free RAM. A model passes verification when it has zero external constant attributes, no small external initializers, a graph below 2 GiB, and (with `--deep-verify`) shape inference succeeds without loading external data.
+
 ## GitHub Workflow
 
 The repository also includes a GitHub Actions workflow:

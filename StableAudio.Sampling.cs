@@ -197,11 +197,6 @@ public partial class StableAudio
         return (float)(1.0 - (expMu / (expMu + odds)));
     }
 
-    static bool UsesSameSDecoder(string decoderPath) =>
-        decoderPath.Contains($"{Path.DirectorySeparatorChar}same-s{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
-        decoderPath.Contains("/same-s/", StringComparison.OrdinalIgnoreCase) ||
-        decoderPath.Contains("\\same-s\\", StringComparison.OrdinalIgnoreCase);
-
     static void WarnIfShortLatent(float seconds, int latentLength, bool debug)
     {
         if (latentLength >= DitTrainedMinLatentLength)

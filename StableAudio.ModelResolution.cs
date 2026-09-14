@@ -11,8 +11,8 @@ public partial class StableAudio
     {
         var spec = state.spec;
         var textEncoderSession = CreateSession(spec.TextEncoderPath, state.provider, allowCpuFallback: true);
-        var ditSession = CreateSession(spec.DitPath, state.provider);
-        var decoderSession = CreateSession(spec.DecoderPath, state.provider);
+        var ditSession = CreateSession(spec.DitPath, ResolveDitProvider(spec.DitPath, state.provider));
+        var decoderSession = CreateSession(spec.DecoderPath, ResolveDecoderProvider(state.provider));
         ValidateDiTSessionContract(ditSession, spec.DitPath);
 
         return new ModelBundle(
@@ -20,6 +20,35 @@ public partial class StableAudio
             textEncoderSession,
             ditSession,
             decoderSession);
+    }
+
+    static string ResolveDecoderProvider(string? provider)
+    {
+        if (!string.Equals(provider, "coreml", StringComparison.OrdinalIgnoreCase))
+            return provider ?? "cpu";
+
+        // The decoder's latent-length input is dynamic, so under ONLY_ALLOW_STATIC_INPUT_SHAPES
+        // CoreML still compiles the static initializer-driven subgraphs while the data-dependent
+        // nodes stay on CPU. That mixed execution corrupts intermediate shapes at the partition
+        // boundary (the SWA qkv slice resolves to {1,seq,1} and the following reshape to
+        // {1,seq,24,-1} fails). Run the decoder fully on CPU.
+        Debug.WriteLine("[StableAudio] decoder runs on CPU: dynamic latent shape is unsafe for CoreML partitioning.");
+        return "cpu";
+    }
+
+    static string ResolveDitProvider(string ditPath, string? provider)
+    {
+        if (!string.Equals(provider, "coreml", StringComparison.OrdinalIgnoreCase))
+            return provider ?? "cpu";
+
+        // The DiT's latent-length dimension is dynamic, so under ONLY_ALLOW_STATIC_INPUT_SHAPES
+        // CoreML still compiles the static initializer-driven subgraphs while the data-dependent
+        // nodes stay on CPU. That mixed execution corrupts intermediate shapes at the partition
+        // boundary — the same failure mode that breaks the decoder, and small models without
+        // external data (small-sfx / small-music) hit it as well. External-data graphs (medium
+        // and larger) additionally blow CoreML compile memory. Run the DiT on CPU for every model.
+        Debug.WriteLine($"[StableAudio] DiT `{ditPath}` runs on CPU: dynamic latent shape is unsafe for CoreML partitioning.");
+        return "cpu";
     }
 
     static ModelSpec ResolveModelSpec(string model, string? provider)

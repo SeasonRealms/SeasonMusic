@@ -45,6 +45,27 @@ public partial class StableAudio
                 var args = method.GetParameters()
                     .Select(CreateDefaultValue)
                     .ToArray();
+
+                // CoreML flags: static input shapes + ML Program. Dynamic-shape partitions
+                // (the decoder's latent-length input, or the DiT when it is not routed to CPU)
+                // then stay on CPU instead of triggering expensive per-shape CoreML recompiles,
+                // and ML Program compiles with a much smaller memory peak than the legacy
+                // NeuralNetwork spec. The flag value is passed via reflection so the same source
+                // compiles against both the uint and CoreMLFlags overloads (ORT 1.26 vs 1.29).
+                if (args.Length == 1 && methodName.Contains("CoreML", StringComparison.Ordinal))
+                {
+                    // Convert.ChangeType only accepts strings for enum targets; numeric values throw
+                    // "Invalid cast from 'System.UInt32' to 'Microsoft.ML.OnnxRuntime.CoreMLFlags'".
+                    // Build the flag value per parameter type instead: Enum.ToObject for the
+                    // CoreMLFlags overload (ORT 1.29), plain Convert.ChangeType for the uint one (1.26).
+                    uint flags = (uint)CoreMLFlags.COREML_FLAG_ONLY_ALLOW_STATIC_INPUT_SHAPES |
+                                 (uint)CoreMLFlags.COREML_FLAG_CREATE_MLPROGRAM;
+                    var parameterType = method.GetParameters()[0].ParameterType;
+                    args[0] = parameterType.IsEnum
+                        ? Enum.ToObject(parameterType, flags)
+                        : Convert.ChangeType(flags, parameterType);
+                }
+
                 method.Invoke(options, args);
                 break;
             }
