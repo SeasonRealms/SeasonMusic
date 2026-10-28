@@ -7,10 +7,10 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <PackageId>SeasonAudio</PackageId>
+    <PackageId>SeasonMusic</PackageId>
     <Version>0.2.0</Version>
     <Authors>SeasonRealms</Authors>
-    <Product>SeasonAudio</Product>
+    <Product>SeasonMusic</Product>
     <Description>MIT-licensed .NET audio inference and ONNX export helpers, currently focused on Stable Audio 3 workflows.</Description>
     <PackageTags>audio;onnx;audio-generation;inference;diffusion</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
