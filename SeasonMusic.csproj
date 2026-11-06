@@ -15,7 +15,7 @@
     <PackageTags>audio;onnx;audio-generation;inference;diffusion</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/SeasonRealms/SeasonAudio</RepositoryUrl>
+    <RepositoryUrl>https://github.com/SeasonRealms/SeasonMusic</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Copyright>Copyright (c) 2026 SeasonRealms</Copyright>
   </PropertyGroup>
